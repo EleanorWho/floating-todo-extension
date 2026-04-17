@@ -198,6 +198,13 @@
   function loadState(cb) {
     chrome.storage.local.get([STORE_KEY, THEME_KEY, DOCK_KEY], (res) => {
       if (res[STORE_KEY]) state = res[STORE_KEY];
+      // Migrate old items (done: boolean → status string)
+      state.items = state.items.map(item => {
+        if (item.status === undefined) item.status = item.done ? 'done' : 'pending';
+        if (item.completedAt === undefined) item.completedAt = item.done ? null : null;
+        if (item.dueDate === undefined) item.dueDate = null;
+        return item;
+      });
       isDark = res[THEME_KEY] === 'dark';
       applyTheme();
       if (res[DOCK_KEY]) {
@@ -330,9 +337,10 @@
   // ── Render Todos ──────────────────────────────────────────────────────────
 
   function renderTodos() {
-    const view    = $('ftd-todo-view');
-    const pending = state.items.filter(i => !i.done);
-    const done    = state.items.filter(i =>  i.done);
+    const view       = $('ftd-todo-view');
+    const pending    = state.items.filter(i => i.status === 'pending');
+    const inProgress = state.items.filter(i => i.status === 'in-progress');
+    const done       = state.items.filter(i => i.status === 'done');
 
     view.innerHTML = '';
 
@@ -341,6 +349,14 @@
       emp.className = 'ftd-empty';
       emp.textContent = 'All clear! Add a task ✨';
       view.appendChild(emp);
+    }
+
+    if (inProgress.length) {
+      const lbl = document.createElement('div');
+      lbl.className = 'ftd-section-label';
+      lbl.textContent = 'In Progress';
+      view.appendChild(lbl);
+      inProgress.forEach(item => view.appendChild(makeTodoEl(item)));
     }
 
     if (pending.length) {
@@ -364,14 +380,23 @@
 
   // ── Build a todo item ──────────────────────────────────────────────────────
 
+  function fmtDate(isoStr) {
+    const [, m, d] = isoStr.split('-').map(Number);
+    return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]} ${d}`;
+  }
+
   function makeTodoEl(item) {
-    if (!item.subtasks) item.subtasks = [];
-    if (item.note === undefined) item.note = '';
+    if (!item.subtasks)  item.subtasks  = [];
+    if (!item.note)      item.note      = '';
+    if (!item.status)    item.status    = 'pending';
+    if (!item.dueDate)   item.dueDate   = null;
 
     const isExpanded = expandedIds.has(item.id);
+    const statusClass = item.status === 'done' ? ' ftd-done'
+                      : item.status === 'in-progress' ? ' ftd-inprogress' : '';
 
     const div = document.createElement('div');
-    div.className = 'ftd-item' + (item.done ? ' ftd-done' : '');
+    div.className = 'ftd-item' + statusClass;
     div.dataset.itemId = item.id;
 
     // Main row
@@ -408,6 +433,20 @@
       tag.className = `ftd-tag ftd-tag-${item.tag}`;
       tag.textContent = item.tag;
       mainRow.appendChild(tag);
+    }
+
+    if (item.dueDate) {
+      const today    = new Date().toISOString().slice(0, 10);
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const isOverdue = item.dueDate < today && item.status !== 'done';
+      const due = document.createElement('span');
+      due.className = 'ftd-due-badge'
+        + (isOverdue            ? ' ftd-due-overdue' : '')
+        + (item.dueDate === today ? ' ftd-due-today'   : '');
+      due.textContent = item.dueDate === today    ? 'Today'
+                      : item.dueDate === tomorrow ? 'Tomorrow'
+                      : fmtDate(item.dueDate);
+      mainRow.appendChild(due);
     }
 
     const del = document.createElement('button');
@@ -482,6 +521,29 @@
     subInput.placeholder = '+ Add sub-task…';
     subAddRow.appendChild(subInput);
 
+    const dueDateRow = document.createElement('div');
+    dueDateRow.className = 'ftd-due-row';
+    const dueDateLabel = document.createElement('span');
+    dueDateLabel.className = 'ftd-due-label';
+    dueDateLabel.textContent = 'Due';
+    const dueDateInput = document.createElement('input');
+    dueDateInput.type = 'date';
+    dueDateInput.className = 'ftd-due-input';
+    dueDateInput.value = item.dueDate || '';
+    dueDateInput.addEventListener('change', e => {
+      e.stopPropagation();
+      const idx = state.items.findIndex(i => i.id === item.id);
+      if (idx !== -1) {
+        state.items[idx].dueDate = dueDateInput.value || null;
+        saveState();
+        renderTodos();
+      }
+    });
+    dueDateInput.addEventListener('keydown', e => e.stopPropagation());
+    dueDateRow.appendChild(dueDateLabel);
+    dueDateRow.appendChild(dueDateInput);
+
+    expandedPanel.appendChild(dueDateRow);
     expandedPanel.appendChild(noteWrap);
     expandedPanel.appendChild(subtasksList);
     expandedPanel.appendChild(subAddRow);
@@ -500,11 +562,20 @@
     mainRow.addEventListener('click', e => {
       if (e.target === expandBtn || e.target === del) return;
       const idx = state.items.findIndex(i => i.id === item.id);
-      if (idx !== -1) {
-        state.items[idx].done = !state.items[idx].done;
-        saveState();
-        renderTodos();
+      if (idx === -1) return;
+      const cur = state.items[idx].status;
+      if (cur === 'pending') {
+        state.items[idx].status = 'in-progress';
+        state.items[idx].completedAt = null;
+      } else if (cur === 'in-progress') {
+        state.items[idx].status = 'done';
+        state.items[idx].completedAt = Date.now();
+      } else {
+        state.items[idx].status = 'pending';
+        state.items[idx].completedAt = null;
       }
+      saveState();
+      renderTodos();
     });
 
     del.addEventListener('click', e => {
@@ -592,7 +663,7 @@
 
   function updateProgress() {
     const total = state.items.length;
-    const done  = state.items.filter(i => i.done).length;
+    const done  = state.items.filter(i => i.status === 'done').length;
     const pct   = total === 0 ? 0 : Math.round(done / total * 100);
     $('ftd-prog-text').textContent = `${done} / ${total} done`;
     $('ftd-prog-pct').textContent  = `${pct}%`;
@@ -606,7 +677,7 @@
     const tagSel = $('ftd-tag-sel');
     const text   = input.value.trim();
     if (!text) return;
-    state.items.push({ id: uid(), text, tag: tagSel.value, done: false, note: '', subtasks: [], createdAt: Date.now() });
+    state.items.push({ id: uid(), text, tag: tagSel.value, status: 'pending', note: '', subtasks: [], createdAt: Date.now(), completedAt: null, dueDate: null });
     saveState();
     renderTodos();
     input.value  = '';
@@ -640,10 +711,12 @@
     const older    = state.items.filter(i =>  i.createdAt && i.createdAt <  mon.getTime());
 
     function itemBlock(item) {
-      const tag   = item.tag ? ` \`${item.tag}\`` : '';
-      const date  = item.createdAt ? ` _(added ${fmtTs(item.createdAt)})_` : '';
-      const check = item.done ? '[x]' : '[ ]';
-      let md = `- ${check} **${item.text}**${tag}${date}\n`;
+      const tag     = item.tag ? ` \`${item.tag}\`` : '';
+      const dueStr  = item.dueDate ? ` · due ${item.dueDate}` : '';
+      const doneStr = item.completedAt ? ` · completed ${fmtTs(item.completedAt)}` : '';
+      const checkMap = { done: '[x]', 'in-progress': '[-]', pending: '[ ]' };
+      const check   = checkMap[item.status] || '[ ]';
+      let md = `- ${check} **${item.text}**${tag}${dueStr}${doneStr}\n`;
       if (item.note && item.note.trim()) {
         item.note.trim().split('\n').forEach(line => { md += `  > ${line}\n`; });
       }
@@ -653,20 +726,25 @@
       return md;
     }
 
-    const done    = thisWeek.filter(i =>  i.done);
-    const pending = thisWeek.filter(i => !i.done);
+    const done       = thisWeek.filter(i => i.status === 'done');
+    const inProgress = thisWeek.filter(i => i.status === 'in-progress');
+    const pending    = thisWeek.filter(i => i.status === 'pending');
 
     let md = `# Weekly Wrap-up: ${fmt(mon)} – ${fmt(sun)}, ${now.getFullYear()}\n\n`;
     md += `> Exported on ${DAYS[now.getDay()]}, ${fmt(now)} ${now.getFullYear()}\n\n`;
 
-    const total    = thisWeek.length;
-    const doneCount = done.length;
-    md += `**Progress:** ${doneCount}/${total} tasks completed`;
-    md += total > 0 ? ` (${Math.round(doneCount / total * 100)}%)\n\n` : '\n\n';
+    const total = thisWeek.length;
+    md += `**Progress:** ${done.length}/${total} tasks completed`;
+    md += total > 0 ? ` (${Math.round(done.length / total * 100)}%)\n\n` : '\n\n';
 
     if (done.length) {
       md += `## ✅ Completed (${done.length})\n\n`;
       done.forEach(i => { md += itemBlock(i); });
+      md += '\n';
+    }
+    if (inProgress.length) {
+      md += `## 🔄 In Progress (${inProgress.length})\n\n`;
+      inProgress.forEach(i => { md += itemBlock(i); });
       md += '\n';
     }
     if (pending.length) {
@@ -710,7 +788,7 @@
   $('ftd-export').addEventListener('click', exportWeekly);
 
   $('ftd-clear').addEventListener('click', () => {
-    state.items = state.items.filter(i => !i.done);
+    state.items = state.items.filter(i => i.status !== 'done');
     saveState();
     renderTodos();
   });
