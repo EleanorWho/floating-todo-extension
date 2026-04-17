@@ -521,6 +521,29 @@
     subInput.placeholder = '+ Add sub-task…';
     subAddRow.appendChild(subInput);
 
+    const tagRow = document.createElement('div');
+    tagRow.className = 'ftd-due-row';
+    const tagLabel = document.createElement('span');
+    tagLabel.className = 'ftd-due-label';
+    tagLabel.textContent = 'Tag';
+    const tagSel = document.createElement('select');
+    tagSel.className = 'ftd-due-input';
+    [['', 'none'], ['work', 'work'], ['life', 'life'], ['learn', 'learn']].forEach(([val, txt]) => {
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = txt;
+      if (val === (item.tag || '')) opt.selected = true;
+      tagSel.appendChild(opt);
+    });
+    tagSel.addEventListener('change', e => {
+      e.stopPropagation();
+      const idx = state.items.findIndex(i => i.id === item.id);
+      if (idx !== -1) { state.items[idx].tag = tagSel.value || ''; saveState(); renderTodos(); }
+    });
+    tagSel.addEventListener('keydown', e => e.stopPropagation());
+    tagRow.appendChild(tagLabel);
+    tagRow.appendChild(tagSel);
+
     const dueDateRow = document.createElement('div');
     dueDateRow.className = 'ftd-due-row';
     const dueDateLabel = document.createElement('span');
@@ -543,6 +566,7 @@
     dueDateRow.appendChild(dueDateLabel);
     dueDateRow.appendChild(dueDateInput);
 
+    expandedPanel.appendChild(tagRow);
     expandedPanel.appendChild(dueDateRow);
     expandedPanel.appendChild(noteWrap);
     expandedPanel.appendChild(subtasksList);
