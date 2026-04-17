@@ -127,7 +127,7 @@
   letter-spacing: 0.05em;
 }
 :host(.ftd-edge-top) #ftd-drawer {
-  width: 380px;
+  width: 420px;
   max-height: 0;
   height: auto;
   overflow: hidden;
@@ -139,7 +139,7 @@
 :host(.ftd-edge-top:hover) #ftd-drawer,
 :host(.ftd-edge-top.ftd-pinned) #ftd-drawer {
   max-height: 85vh;
-  width: 380px;
+  width: 420px;
 }
 
 /* ── Bottom edge ──────────────────────────────────────────────────────────── */
@@ -158,7 +158,7 @@
   letter-spacing: 0.05em;
 }
 :host(.ftd-edge-bottom) #ftd-drawer {
-  width: 380px;
+  width: 420px;
   max-height: 0;
   height: auto;
   overflow: hidden;
@@ -170,7 +170,7 @@
 :host(.ftd-edge-bottom:hover) #ftd-drawer,
 :host(.ftd-edge-bottom.ftd-pinned) #ftd-drawer {
   max-height: 85vh;
-  width: 380px;
+  width: 420px;
 }
 
 /* ── Drawer (right edge — default) ───────────────────────────────────────── */
@@ -190,7 +190,7 @@
 
 :host(:hover) #ftd-drawer,
 :host(.ftd-pinned) #ftd-drawer {
-  width: 380px;
+  width: 420px;
 }
 
 /* Suppress hover-open while dragging */
@@ -200,7 +200,7 @@
 }
 
 #ftd-inner {
-  width: 380px;
+  width: 420px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -266,6 +266,46 @@
   border-color: var(--accent);
 }
 .ftd-icon-btn.ftd-active:hover { opacity: 0.88; }
+
+/* ── Overflow dropdown menu ───────────────────────────────────────────────── */
+
+.ftd-menu-wrap {
+  position: relative;
+}
+.ftd-dropdown {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+  z-index: 10;
+  min-width: 168px;
+  padding: 4px 0;
+  white-space: nowrap;
+}
+.ftd-dropdown.ftd-open { display: block; }
+.ftd-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+.ftd-dropdown-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 
 /* ── Progress ─────────────────────────────────────────────────────────────── */
 
@@ -401,6 +441,8 @@
   color: var(--text-done);
   text-decoration: line-through;
 }
+.ftd-text a { color: var(--link); text-decoration: underline; }
+.ftd-text a:hover { opacity: 0.75; }
 
 .ftd-text-edit {
   flex: 1;
@@ -481,13 +523,16 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-radius: 5px;
-  padding: 3px 7px;
+  padding: 2px 6px;
   color: var(--text-secondary);
   font-size: 11px;
   font-family: inherit;
   outline: none;
   cursor: pointer;
   transition: border-color 0.15s;
+  flex-shrink: 0;
+  margin-top: 3px;
+  width: 130px;
 }
 .ftd-due-input:focus { border-color: var(--accent); }
 
@@ -514,6 +559,9 @@
 .ftd-tag-work  { background: var(--tag-work-bg);  color: var(--tag-work-text); }
 .ftd-tag-life  { background: var(--tag-life-bg);  color: var(--tag-life-text); }
 .ftd-tag-learn { background: var(--tag-learn-bg); color: var(--tag-learn-text); }
+.ftd-tag-none  { background: var(--bg-secondary); color: var(--text-muted); font-weight: 400; }
+.ftd-tag, .ftd-due-badge { cursor: pointer; }
+.ftd-tag:hover, .ftd-due-badge:hover { filter: brightness(0.92); }
 
 .ftd-del {
   opacity: 0;
@@ -528,6 +576,12 @@
   transition: color 0.15s, opacity 0.15s;
 }
 .ftd-del:hover { color: #dc2626; }
+
+/* ── Drag indicators ──────────────────────────────────────────────────────── */
+.ftd-item-ghost { opacity: 0.35; }
+.ftd-item.ftd-drop-above { box-shadow: 0 -2px 0 var(--accent); border-radius: 0; }
+.ftd-item.ftd-drop-below { box-shadow: 0 2px 0 var(--accent);  border-radius: 0; }
+.ftd-item.ftd-drop-nest  { outline: 1.5px solid var(--accent); outline-offset: -1px; background: var(--bg-hover); }
 
 .ftd-empty {
   color: var(--text-muted);
@@ -724,9 +778,24 @@
   line-height: 1.5;
   color: var(--text-secondary);
 }
+.ftd-subtask-text a { color: var(--link); text-decoration: underline; }
+.ftd-subtask-text a:hover { opacity: 0.75; }
 .ftd-subtask.ftd-done .ftd-subtask-text {
   color: var(--text-done);
   text-decoration: line-through;
+}
+.ftd-subtask.ftd-inprogress .ftd-subtask-check {
+  border-color: var(--accent);
+}
+.ftd-subtask.ftd-inprogress .ftd-subtask-check::after {
+  content: '';
+  width: 6px;
+  height: 1.5px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.ftd-subtask.ftd-inprogress .ftd-subtask-text {
+  color: var(--text-secondary);
 }
 
 .ftd-subtask-del {

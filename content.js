@@ -31,7 +31,14 @@
           <div class="ftd-actions">
             <button class="ftd-icon-btn" id="ftd-pin" title="Pin panel">📌</button>
             <button class="ftd-icon-btn" id="ftd-theme" title="Switch to dark">🌙</button>
-            <button class="ftd-icon-btn" id="ftd-export" title="Export weekly wrap-up">📥</button>
+            <div class="ftd-menu-wrap">
+              <button class="ftd-icon-btn" id="ftd-menu-btn" title="More options">⋯</button>
+              <div class="ftd-dropdown" id="ftd-dropdown">
+                <button class="ftd-dropdown-item" id="ftd-export">📥 Weekly wrap-up</button>
+                <button class="ftd-dropdown-item" id="ftd-backup">💾 Backup to JSON</button>
+                <button class="ftd-dropdown-item" id="ftd-restore">📂 Restore backup</button>
+              </div>
+            </div>
             <button class="ftd-icon-btn" id="ftd-clear" title="Clear completed">🧹</button>
           </div>
         </div>
@@ -72,15 +79,18 @@
 
   // ── State & Storage ────────────────────────────────────────────────────────
 
-  const STORE_KEY = 'ftd-todos-v1';
-  const THEME_KEY = 'ftd-theme-v1';
-  const DOCK_KEY  = 'ftd-dock-v1';
+  const STORE_KEY   = 'ftd-todos-v1';
+  const THEME_KEY   = 'ftd-theme-v1';
+  const DOCK_KEY    = 'ftd-dock-v1';
+  const ARCHIVE_KEY = 'ftd-archive-v1';
 
   let state = { items: [] };
   let isDark = false;
   const expandedIds = new Set();
   const previewIds  = new Set();
   const noteTimers  = {};
+  let backupArchive     = [];
+  let dateJustCommitted = false;
 
   // ── Dock state ─────────────────────────────────────────────────────────────
   // edge: 'right' | 'left' | 'top' | 'bottom'
@@ -195,14 +205,25 @@
 
   // ── Storage ────────────────────────────────────────────────────────────────
 
+  function pruneArchive() {
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    backupArchive = backupArchive.filter(i => (i.archivedAt || 0) > cutoff);
+  }
+
   function loadState(cb) {
-    chrome.storage.local.get([STORE_KEY, THEME_KEY, DOCK_KEY], (res) => {
+    chrome.storage.local.get([STORE_KEY, ARCHIVE_KEY, THEME_KEY, DOCK_KEY], (res) => {
       if (res[STORE_KEY]) state = res[STORE_KEY];
+      backupArchive = res[ARCHIVE_KEY] || [];
+      pruneArchive();
       // Migrate old items (done: boolean → status string)
       state.items = state.items.map(item => {
         if (item.status === undefined) item.status = item.done ? 'done' : 'pending';
-        if (item.completedAt === undefined) item.completedAt = item.done ? null : null;
+        if (item.completedAt === undefined) item.completedAt = null;
         if (item.dueDate === undefined) item.dueDate = null;
+        item.subtasks = (item.subtasks || []).map(sub => {
+          if (sub.status === undefined) sub.status = sub.done ? 'done' : 'pending';
+          return sub;
+        });
         return item;
       });
       isDark = res[THEME_KEY] === 'dark';
@@ -218,7 +239,7 @@
   }
 
   function saveState() {
-    chrome.storage.local.set({ [STORE_KEY]: state });
+    chrome.storage.local.set({ [STORE_KEY]: state, [ARCHIVE_KEY]: backupArchive });
   }
 
   function uid() {
@@ -242,6 +263,17 @@
     pinBtn.classList.toggle('ftd-active', pinned);
     pinBtn.title = pinned ? 'Unpin panel' : 'Pin panel';
   });
+
+  // ── Dropdown menu ─────────────────────────────────────────────────────────
+
+  const menuBtn  = $('ftd-menu-btn');
+  const dropdown = $('ftd-dropdown');
+  menuBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    dropdown.classList.toggle('ftd-open');
+  });
+  // Close on any click inside shadow (including item clicks)
+  shadow.addEventListener('click', () => dropdown.classList.remove('ftd-open'));
 
   // ── Theme ─────────────────────────────────────────────────────────────────
 
@@ -334,6 +366,21 @@
     return html;
   }
 
+  function renderInlineMarkdown(raw) {
+    if (!raw) return '';
+    let s = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    s = s.replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, text, href) => {
+      const safe = /^(https?:|mailto:|#)/.test(href) ? href : '#';
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    });
+    return s;
+  }
+
   // ── Render Todos ──────────────────────────────────────────────────────────
 
   function renderTodos() {
@@ -413,7 +460,7 @@
 
     const text = document.createElement('div');
     text.className = 'ftd-text';
-    text.textContent = item.text;
+    text.innerHTML = renderInlineMarkdown(item.text);
 
     mainRow.appendChild(expandBtn);
     mainRow.appendChild(check);
@@ -424,28 +471,64 @@
     if (subs.length && !isExpanded) {
       const hint = document.createElement('span');
       hint.className = 'ftd-sub-hint';
-      hint.textContent = `${subs.filter(s => s.done).length}/${subs.length}`;
+      hint.textContent = `${subs.filter(s => (s.status || 'pending') === 'done').length}/${subs.length}`;
       mainRow.appendChild(hint);
     }
 
-    if (item.tag) {
-      const tag = document.createElement('span');
-      tag.className = `ftd-tag ftd-tag-${item.tag}`;
-      tag.textContent = item.tag;
-      mainRow.appendChild(tag);
-    }
+    const TAGS = ['', 'work', 'life', 'learn'];
+    const tagBadge = document.createElement('span');
+    tagBadge.className = `ftd-tag ftd-tag-${item.tag || 'none'}`;
+    tagBadge.textContent = item.tag || 'none';
+    tagBadge.title = 'Click to change tag';
+    tagBadge.addEventListener('click', e => {
+      e.stopPropagation();
+      const idx = state.items.findIndex(i => i.id === item.id);
+      if (idx === -1) return;
+      const cur = TAGS.indexOf(state.items[idx].tag || '');
+      state.items[idx].tag = TAGS[(cur + 1) % TAGS.length];
+      saveState();
+      renderTodos();
+    });
+    mainRow.appendChild(tagBadge);
 
-    if (item.dueDate) {
+    {
       const today    = new Date().toISOString().slice(0, 10);
       const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-      const isOverdue = item.dueDate < today && item.status !== 'done';
+      const isOverdue = item.dueDate && item.dueDate < today && item.status !== 'done';
       const due = document.createElement('span');
       due.className = 'ftd-due-badge'
-        + (isOverdue            ? ' ftd-due-overdue' : '')
+        + (isOverdue              ? ' ftd-due-overdue' : '')
         + (item.dueDate === today ? ' ftd-due-today'   : '');
-      due.textContent = item.dueDate === today    ? 'Today'
+      due.textContent = !item.dueDate           ? 'no date'
+                      : item.dueDate === today    ? 'Today'
                       : item.dueDate === tomorrow ? 'Tomorrow'
                       : fmtDate(item.dueDate);
+      due.title = 'Click to change due date';
+      due.addEventListener('click', e => {
+        e.stopPropagation();
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.value = item.dueDate || today;
+        input.className = 'ftd-due-input';
+        due.replaceWith(input);
+        let committed = false;
+        function commitDate() {
+          if (committed) return;
+          committed = true;
+          dateJustCommitted = true;
+          setTimeout(() => { dateJustCommitted = false; }, 300);
+          const idx = state.items.findIndex(i => i.id === item.id);
+          if (idx !== -1) { state.items[idx].dueDate = input.value || null; saveState(); }
+          renderTodos();
+        }
+        input.addEventListener('blur', commitDate);
+        input.addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Enter')  commitDate();
+          if (e.key === 'Escape') renderTodos();
+        });
+        input.focus();
+      });
       mainRow.appendChild(due);
     }
 
@@ -521,53 +604,6 @@
     subInput.placeholder = '+ Add sub-task…';
     subAddRow.appendChild(subInput);
 
-    const tagRow = document.createElement('div');
-    tagRow.className = 'ftd-due-row';
-    const tagLabel = document.createElement('span');
-    tagLabel.className = 'ftd-due-label';
-    tagLabel.textContent = 'Tag';
-    const tagSel = document.createElement('select');
-    tagSel.className = 'ftd-due-input';
-    [['', 'none'], ['work', 'work'], ['life', 'life'], ['learn', 'learn']].forEach(([val, txt]) => {
-      const opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = txt;
-      if (val === (item.tag || '')) opt.selected = true;
-      tagSel.appendChild(opt);
-    });
-    tagSel.addEventListener('change', e => {
-      e.stopPropagation();
-      const idx = state.items.findIndex(i => i.id === item.id);
-      if (idx !== -1) { state.items[idx].tag = tagSel.value || ''; saveState(); renderTodos(); }
-    });
-    tagSel.addEventListener('keydown', e => e.stopPropagation());
-    tagRow.appendChild(tagLabel);
-    tagRow.appendChild(tagSel);
-
-    const dueDateRow = document.createElement('div');
-    dueDateRow.className = 'ftd-due-row';
-    const dueDateLabel = document.createElement('span');
-    dueDateLabel.className = 'ftd-due-label';
-    dueDateLabel.textContent = 'Due';
-    const dueDateInput = document.createElement('input');
-    dueDateInput.type = 'date';
-    dueDateInput.className = 'ftd-due-input';
-    dueDateInput.value = item.dueDate || '';
-    dueDateInput.addEventListener('change', e => {
-      e.stopPropagation();
-      const idx = state.items.findIndex(i => i.id === item.id);
-      if (idx !== -1) {
-        state.items[idx].dueDate = dueDateInput.value || null;
-        saveState();
-        renderTodos();
-      }
-    });
-    dueDateInput.addEventListener('keydown', e => e.stopPropagation());
-    dueDateRow.appendChild(dueDateLabel);
-    dueDateRow.appendChild(dueDateInput);
-
-    expandedPanel.appendChild(tagRow);
-    expandedPanel.appendChild(dueDateRow);
     expandedPanel.appendChild(noteWrap);
     expandedPanel.appendChild(subtasksList);
     expandedPanel.appendChild(subAddRow);
@@ -584,7 +620,7 @@
     });
 
     function cycleStatus() {
-      if (isEditing) return;
+      if (isEditing || dateJustCommitted) return;
       const idx = state.items.findIndex(i => i.id === item.id);
       if (idx === -1) return;
       const cur = state.items[idx].status;
@@ -610,8 +646,11 @@
 
     del.addEventListener('click', e => {
       e.stopPropagation();
+      const gone = state.items.find(i => i.id === item.id);
+      if (gone) backupArchive.push({ ...gone, archivedAt: Date.now() });
       state.items = state.items.filter(i => i.id !== item.id);
       expandedIds.delete(item.id);
+      pruneArchive();
       saveState();
       renderTodos();
     });
@@ -659,7 +698,7 @@
       if (e.key !== 'Enter') return;
       const val = subInput.value.trim();
       if (!val) return;
-      item.subtasks.push({ id: uid(), text: val, done: false });
+      item.subtasks.push({ id: uid(), text: val, status: 'pending' });
       saveState();
       renderTodos();
       requestAnimationFrame(() => {
@@ -670,21 +709,103 @@
       });
     });
 
+    // ── Drag to reorder / nest ───────────────────────────────────────────────
+    mainRow.draggable = true;
+
+    mainRow.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ t: 'task', id: item.id }));
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => div.classList.add('ftd-item-ghost'), 0);
+    });
+
+    mainRow.addEventListener('dragend', () => {
+      div.classList.remove('ftd-item-ghost');
+      shadow.querySelectorAll('.ftd-drop-above,.ftd-drop-below,.ftd-drop-nest')
+        .forEach(el => el.classList.remove('ftd-drop-above', 'ftd-drop-below', 'ftd-drop-nest'));
+    });
+
+    div.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      shadow.querySelectorAll('.ftd-drop-above,.ftd-drop-below,.ftd-drop-nest')
+        .forEach(el => el.classList.remove('ftd-drop-above', 'ftd-drop-below', 'ftd-drop-nest'));
+      const rect = mainRow.getBoundingClientRect();
+      const relY  = e.clientY - rect.top;
+      if      (relY < rect.height * 0.33) div.classList.add('ftd-drop-above');
+      else if (relY > rect.height * 0.67) div.classList.add('ftd-drop-below');
+      else                                div.classList.add('ftd-drop-nest');
+    });
+
+    div.addEventListener('dragleave', e => {
+      if (!div.contains(e.relatedTarget))
+        div.classList.remove('ftd-drop-above', 'ftd-drop-below', 'ftd-drop-nest');
+    });
+
+    div.addEventListener('drop', e => {
+      e.preventDefault();
+      div.classList.remove('ftd-drop-above', 'ftd-drop-below', 'ftd-drop-nest');
+      let data; try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
+
+      const rect = mainRow.getBoundingClientRect();
+      const relY = e.clientY - rect.top;
+      const zone = relY < rect.height * 0.33 ? 'above'
+                 : relY > rect.height * 0.67 ? 'below' : 'nest';
+
+      if (data.t === 'task') {
+        if (data.id === item.id) return;
+        const draggedIdx = state.items.findIndex(i => i.id === data.id);
+        if (draggedIdx === -1) return;
+        if (zone === 'nest') {
+          const [dragged] = state.items.splice(draggedIdx, 1);
+          const targetIdx = state.items.findIndex(i => i.id === item.id);
+          state.items[targetIdx].subtasks.push({ id: dragged.id, text: dragged.text, status: dragged.status });
+          expandedIds.add(item.id);
+        } else {
+          const [dragged] = state.items.splice(draggedIdx, 1);
+          const targetIdx = state.items.findIndex(i => i.id === item.id);
+          state.items.splice(zone === 'above' ? targetIdx : targetIdx + 1, 0, dragged);
+        }
+
+      } else if (data.t === 'sub') {
+        const srcIdx = state.items.findIndex(i => i.id === data.pid);
+        if (srcIdx === -1) return;
+        const subData = state.items[srcIdx].subtasks.find(s => s.id === data.sid);
+        if (!subData) return;
+        state.items[srcIdx].subtasks = state.items[srcIdx].subtasks.filter(s => s.id !== data.sid);
+        if (zone === 'nest') {
+          const targetIdx = state.items.findIndex(i => i.id === item.id);
+          state.items[targetIdx].subtasks.push(subData);
+          expandedIds.add(item.id);
+        } else {
+          const newTask = { id: subData.id, text: subData.text, status: subData.status || 'pending',
+            tag: '', note: '', subtasks: [], createdAt: Date.now(), completedAt: null,
+            dueDate: new Date().toISOString().slice(0, 10) };
+          const targetIdx = state.items.findIndex(i => i.id === item.id);
+          state.items.splice(zone === 'above' ? targetIdx : targetIdx + 1, 0, newTask);
+        }
+      }
+      saveState();
+      renderTodos();
+    });
+
     return div;
   }
 
   // ── Build a sub-task element ───────────────────────────────────────────────
 
   function makeSubtaskEl(parentItem, sub) {
+    const subStatus = sub.status || 'pending';
     const div = document.createElement('div');
-    div.className = 'ftd-subtask' + (sub.done ? ' ftd-done' : '');
+    div.className = 'ftd-subtask'
+      + (subStatus === 'done'        ? ' ftd-done'       : '')
+      + (subStatus === 'in-progress' ? ' ftd-inprogress' : '');
 
     const check = document.createElement('div');
     check.className = 'ftd-subtask-check';
 
     const text = document.createElement('div');
     text.className = 'ftd-subtask-text';
-    text.textContent = sub.text;
+    text.innerHTML = renderInlineMarkdown(sub.text);
 
     const del = document.createElement('button');
     del.className = 'ftd-subtask-del';
@@ -694,13 +815,45 @@
     div.appendChild(text);
     div.appendChild(del);
 
+    let subEditing = false;
+    text.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      subEditing = true;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'ftd-text-edit';
+      input.value = sub.text;
+      text.replaceWith(input);
+      input.focus();
+      input.select();
+      function commit() {
+        subEditing = false;
+        const val = input.value.trim();
+        const pidx = state.items.findIndex(i => i.id === parentItem.id);
+        if (pidx !== -1 && val) {
+          const sidx = state.items[pidx].subtasks.findIndex(s => s.id === sub.id);
+          if (sidx !== -1) state.items[pidx].subtasks[sidx].text = val;
+        }
+        saveState();
+        renderTodos();
+      }
+      input.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter')  commit();
+        if (e.key === 'Escape') { subEditing = false; renderTodos(); }
+      });
+      input.addEventListener('blur', commit);
+    });
+
     div.addEventListener('click', e => {
-      if (e.target === del) return;
+      if (e.target === del || subEditing || e.target === text || text.contains(e.target)) return;
       const pidx = state.items.findIndex(i => i.id === parentItem.id);
       if (pidx === -1) return;
       const sidx = state.items[pidx].subtasks.findIndex(s => s.id === sub.id);
       if (sidx === -1) return;
-      state.items[pidx].subtasks[sidx].done = !state.items[pidx].subtasks[sidx].done;
+      const cur = state.items[pidx].subtasks[sidx].status || 'pending';
+      state.items[pidx].subtasks[sidx].status =
+        cur === 'pending' ? 'in-progress' : cur === 'in-progress' ? 'done' : 'pending';
       saveState();
       renderTodos();
     });
@@ -714,6 +867,15 @@
       saveState();
       renderTodos();
     });
+
+    div.draggable = true;
+    div.addEventListener('dragstart', e => {
+      e.stopPropagation();
+      e.dataTransfer.setData('text/plain', JSON.stringify({ t: 'sub', pid: parentItem.id, sid: sub.id }));
+      e.dataTransfer.effectAllowed = 'move';
+      div.style.opacity = '0.4';
+    });
+    div.addEventListener('dragend', () => { div.style.opacity = ''; });
 
     return div;
   }
@@ -736,7 +898,7 @@
     const tagSel = $('ftd-tag-sel');
     const text   = input.value.trim();
     if (!text) return;
-    state.items.push({ id: uid(), text, tag: tagSel.value, status: 'pending', note: '', subtasks: [], createdAt: Date.now(), completedAt: null, dueDate: null });
+    state.items.push({ id: uid(), text, tag: tagSel.value, status: 'pending', note: '', subtasks: [], createdAt: Date.now(), completedAt: null, dueDate: new Date().toISOString().slice(0, 10) });
     saveState();
     renderTodos();
     input.value  = '';
@@ -749,6 +911,73 @@
     e.stopPropagation();
     if (e.key === 'Enter') addTodo();
   });
+
+  // ── JSON backup / restore ─────────────────────────────────────────────────
+
+  function migrateItems(items) {
+    return items.map(item => {
+      if (item.status === undefined)     item.status     = item.done ? 'done' : 'pending';
+      if (item.completedAt === undefined) item.completedAt = null;
+      if (item.dueDate === undefined)    item.dueDate    = null;
+      item.subtasks = (item.subtasks || []).map(sub => {
+        if (sub.status === undefined) sub.status = sub.done ? 'done' : 'pending';
+        return sub;
+      });
+      return item;
+    });
+  }
+
+  function flashBtn(id, icon, duration = 1500) {
+    const btn = $(id);
+    const orig = btn.textContent;
+    btn.textContent = icon;
+    setTimeout(() => { btn.textContent = orig; }, duration);
+  }
+
+  async function exportBackup() {
+    pruneArchive();
+    const payload = JSON.stringify({ version: 2, savedAt: new Date().toISOString(), state, archive: backupArchive }, null, 2);
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'ftd-backup.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      });
+      const w = await handle.createWritable();
+      await w.write(payload);
+      await w.close();
+      flashBtn('ftd-menu-btn', '✅');
+    } catch (e) {
+      if (e.name !== 'AbortError') flashBtn('ftd-menu-btn', '❌', 2500);
+    }
+  }
+
+  async function importBackup() {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      });
+      const file = await handle.getFile();
+      const raw  = await file.text();
+      const parsed = JSON.parse(raw);
+      // Support both old format ({items:[]}) and new format ({state:{items:[]}, archive:[]})
+      const data = parsed.state || parsed;
+      if (!data.items || !Array.isArray(data.items)) throw new Error('Missing "items" array');
+      data.items = migrateItems(data.items);
+      state = data;
+      if (parsed.archive && Array.isArray(parsed.archive)) {
+        backupArchive = parsed.archive;
+        pruneArchive();
+      }
+      saveState();
+      renderTodos();
+      flashBtn('ftd-menu-btn', '✅');
+    } catch (e) {
+      if (e.name !== 'AbortError') flashBtn('ftd-menu-btn', '❌', 2500);
+    }
+  }
+
+  $('ftd-backup').addEventListener('click', exportBackup);
+  $('ftd-restore').addEventListener('click', importBackup);
 
   // ── Weekly export ─────────────────────────────────────────────────────────
 
@@ -780,7 +1009,8 @@
         item.note.trim().split('\n').forEach(line => { md += `  > ${line}\n`; });
       }
       (item.subtasks || []).forEach(sub => {
-        md += `  - ${sub.done ? '[x]' : '[ ]'} ${sub.text}\n`;
+        const sc = (sub.status || 'pending') === 'done' ? '[x]' : (sub.status === 'in-progress' ? '[-]' : '[ ]');
+        md += `  - ${sc} ${sub.text}\n`;
       });
       return md;
     }
@@ -817,6 +1047,17 @@
     if (older.length) {
       md += `## 🗂 Carried over from previous weeks (${older.length})\n\n`;
       older.forEach(i => { md += itemBlock(i); });
+      md += '\n';
+    }
+
+    // Archived (deleted/cleared) tasks from this week stored in backupArchive
+    const archivedThisWeek = backupArchive.filter(i => {
+      const t = i.archivedAt || 0;
+      return t >= mon.getTime() && t <= sun.getTime();
+    });
+    if (archivedThisWeek.length) {
+      md += `## 🗑 Removed this week (${archivedThisWeek.length})\n\n`;
+      archivedThisWeek.forEach(i => { md += itemBlock(i); });
       md += '\n';
     }
 
@@ -877,9 +1118,54 @@
   $('ftd-export').addEventListener('click', exportWeekly);
 
   $('ftd-clear').addEventListener('click', () => {
+    state.items.filter(i => i.status === 'done')
+      .forEach(i => backupArchive.push({ ...i, archivedAt: Date.now() }));
     state.items = state.items.filter(i => i.status !== 'done');
+    pruneArchive();
     saveState();
     renderTodos();
+  });
+
+  // ── Scroll drop zone (subtask → top-level) ────────────────────────────────
+
+  const scrollEl = $('ftd-todo-scroll');
+  scrollEl.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+  scrollEl.addEventListener('drop', e => {
+    let data; try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
+    if (data.t !== 'sub') return;
+    e.stopPropagation();
+    const srcIdx = state.items.findIndex(i => i.id === data.pid);
+    if (srcIdx === -1) return;
+    const subData = state.items[srcIdx].subtasks.find(s => s.id === data.sid);
+    if (!subData) return;
+    state.items[srcIdx].subtasks = state.items[srcIdx].subtasks.filter(s => s.id !== data.sid);
+    state.items.push({ id: subData.id, text: subData.text, status: subData.status || 'pending',
+      tag: '', note: '', subtasks: [], createdAt: Date.now(), completedAt: null,
+      dueDate: new Date().toISOString().slice(0, 10) });
+    saveState();
+    renderTodos();
+  });
+
+  // ── Context menu receiver ─────────────────────────────────────────────────
+
+  chrome.runtime.onMessage.addListener(msg => {
+    if (msg.type !== 'FTD_CTX') return;
+    const hasSelection = !!(msg.selection && msg.selection.trim());
+    const title = (msg.pageTitle || msg.url || 'Untitled').replace(/\[|\]/g, '');
+    const text = `[${title}](${msg.url})`;
+    const note = hasSelection ? `> ${msg.selection.trim()}` : '';
+    state.items.push({
+      id: uid(), text, tag: '', status: 'pending',
+      note, subtasks: [], createdAt: Date.now(), completedAt: null,
+      dueDate: new Date().toISOString().slice(0, 10),
+    });
+    saveState();
+    renderTodos();
+    // Flash tab to confirm
+    const tab = shadow.querySelector('#ftd-tab');
+    tab.style.background = 'var(--accent)';
+    tab.style.color = '#fff';
+    setTimeout(() => { tab.style.background = ''; tab.style.color = ''; }, 1200);
   });
 
   // ── Init ──────────────────────────────────────────────────────────────────
