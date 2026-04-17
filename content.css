@@ -402,6 +402,20 @@
   text-decoration: line-through;
 }
 
+.ftd-text-edit {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid var(--accent);
+  outline: none;
+  padding: 0;
+  font-family: inherit;
+  min-width: 0;
+}
+
 /* In-progress checkbox — dash */
 .ftd-item.ftd-inprogress .ftd-check {
   border-color: var(--accent);

@@ -559,8 +559,8 @@
       renderTodos();
     });
 
-    mainRow.addEventListener('click', e => {
-      if (e.target === expandBtn || e.target === del) return;
+    function cycleStatus() {
+      if (isEditing) return;
       const idx = state.items.findIndex(i => i.id === item.id);
       if (idx === -1) return;
       const cur = state.items[idx].status;
@@ -576,6 +576,12 @@
       }
       saveState();
       renderTodos();
+    }
+
+    mainRow.addEventListener('click', e => {
+      if (e.target === expandBtn || e.target === del) return;
+      if (e.target === text || text.contains(e.target)) return;
+      cycleStatus();
     });
 
     del.addEventListener('click', e => {
@@ -584,6 +590,35 @@
       expandedIds.delete(item.id);
       saveState();
       renderTodos();
+    });
+
+    let isEditing = false;
+
+    text.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      isEditing = true;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'ftd-text-edit';
+      input.value = item.text;
+      text.replaceWith(input);
+      input.focus();
+      input.select();
+
+      function commit() {
+        isEditing = false;
+        const val = input.value.trim();
+        const idx = state.items.findIndex(i => i.id === item.id);
+        if (idx !== -1 && val) state.items[idx].text = val;
+        saveState();
+        renderTodos();
+      }
+      input.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter')  commit();
+        if (e.key === 'Escape') { isEditing = false; renderTodos(); }
+      });
+      input.addEventListener('blur', commit);
     });
 
     noteTA.addEventListener('input', () => {
