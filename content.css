@@ -748,6 +748,89 @@
 .ftd-subtask-input:focus { border-bottom-color: var(--accent); }
 .ftd-subtask-input::placeholder { color: var(--text-muted); }
 
+/* ── Wrap-up modal ────────────────────────────────────────────────────────── */
+
+.ftd-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ftd-modal {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(560px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.ftd-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ftd-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 0.15s;
+}
+.ftd-modal-close:hover { color: var(--text-primary); }
+
+.ftd-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+  margin: 0;
+}
+
+.ftd-modal-footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.ftd-modal-copy {
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 7px 20px;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.ftd-modal-copy:hover { filter: brightness(0.88); }
+
 /* ── Add area ─────────────────────────────────────────────────────────────── */
 
 .ftd-add-area {

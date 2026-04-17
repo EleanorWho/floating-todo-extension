@@ -766,23 +766,53 @@
   }
 
   function exportWeekly() {
-    const md  = generateWeeklyMarkdown();
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-    const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `weekly-todo-${dateStr}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const md = generateWeeklyMarkdown();
 
-    // Flash button to confirm
-    const btn = $('ftd-export');
-    btn.textContent = '✓';
-    setTimeout(() => { btn.textContent = '📥'; }, 1500);
+    const overlay = document.createElement('div');
+    overlay.className = 'ftd-modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'ftd-modal';
+
+    const header = document.createElement('div');
+    header.className = 'ftd-modal-header';
+    const title = document.createElement('span');
+    title.textContent = 'Weekly Wrap-up';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ftd-modal-close';
+    closeBtn.textContent = '×';
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const pre = document.createElement('pre');
+    pre.className = 'ftd-modal-body';
+    pre.textContent = md;
+
+    const footer = document.createElement('div');
+    footer.className = 'ftd-modal-footer';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'ftd-modal-copy';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(md).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+      });
+    });
+    footer.appendChild(copyBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(pre);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    shadow.appendChild(overlay);
+
+    const close = () => shadow.removeChild(overlay);
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+    });
   }
 
   $('ftd-export').addEventListener('click', exportWeekly);
