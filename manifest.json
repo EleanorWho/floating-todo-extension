@@ -3,7 +3,8 @@
   "name": "Floating Daily To-Do",
   "version": "1.0",
   "description": "A floating Daily To-Do + Markdown notebook on the right side of the browser",
-  "permissions": ["storage", "contextMenus"],
+  "permissions": ["storage", "contextMenus", "alarms"],
+  "host_permissions": ["https://api.github.com/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
@@ -14,7 +15,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content.css"],
+      "resources": ["content.css", "version.json"],
       "matches": ["<all_urls>"]
     }
   ],

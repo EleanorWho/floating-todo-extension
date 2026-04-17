@@ -34,6 +34,7 @@
             <div class="ftd-menu-wrap">
               <button class="ftd-icon-btn" id="ftd-menu-btn" title="More options">⋯</button>
               <div class="ftd-dropdown" id="ftd-dropdown">
+                <button class="ftd-dropdown-item ftd-update-item" id="ftd-update-item" style="display:none">🆕 Update available</button>
                 <button class="ftd-dropdown-item" id="ftd-export">📥 Weekly wrap-up</button>
                 <button class="ftd-dropdown-item" id="ftd-backup">💾 Backup to JSON</button>
                 <button class="ftd-dropdown-item" id="ftd-restore">📂 Restore backup</button>
@@ -274,6 +275,49 @@
   });
   // Close on any click inside shadow (including item clicks)
   shadow.addEventListener('click', () => dropdown.classList.remove('ftd-open'));
+
+  // ── Update check ───────────────────────────────────────────────────────────
+
+  async function checkUpdateBadge() {
+    try {
+      const localRes = await fetch(chrome.runtime.getURL('version.json'));
+      const { sha: localSha } = await localRes.json();
+      const stored = await chrome.storage.local.get('ftd-remote-sha');
+      const remoteSha = stored['ftd-remote-sha'];
+      if (!remoteSha || !localSha || remoteSha === localSha) return;
+      // Behind — show indicator
+      menuBtn.classList.add('ftd-has-update');
+      $('ftd-update-item').style.display = '';
+    } catch (_) {}
+  }
+
+  $('ftd-update-item').addEventListener('click', () => {
+    const extFolder = '<em>the extension folder</em>';
+    const overlay = document.createElement('div');
+    overlay.className = 'ftd-modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'ftd-modal';
+    modal.innerHTML = `
+      <div class="ftd-modal-header">
+        <span>🆕 Update available</span>
+        <button class="ftd-modal-close">×</button>
+      </div>
+      <div class="ftd-modal-body" style="font-family:inherit;font-size:13px;line-height:1.7;white-space:normal">
+        <p style="margin-bottom:10px">A new version is available on GitHub. To update:</p>
+        <ol style="padding-left:18px;margin-bottom:12px">
+          <li>Open Terminal and run:</li>
+        </ol>
+        <pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:5px;padding:8px 12px;font-size:12px;margin-bottom:12px">./update.sh</pre>
+        <p style="color:var(--text-muted);font-size:12px">Then go to <strong>chrome://extensions</strong> and click the reload button (↺) next to Floating Daily To-Do.</p>
+      </div>`;
+    overlay.appendChild(modal);
+    shadow.appendChild(overlay);
+    const close = () => shadow.removeChild(overlay);
+    modal.querySelector('.ftd-modal-close').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  });
+
+  checkUpdateBadge();
 
   // ── Theme ─────────────────────────────────────────────────────────────────
 
