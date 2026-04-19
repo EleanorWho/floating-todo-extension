@@ -78,6 +78,13 @@
   const $  = id  => shadow.querySelector('#' + id);
   const $$ = sel => shadow.querySelectorAll(sel);
 
+  // Prevent all keyboard events from leaking out of the shadow DOM into the host page.
+  // keydown/keyup/keypress are composed:true by default, so without this they bubble
+  // across the shadow boundary and trigger host-page shortcuts (e.g. video spacebar).
+  ['keydown', 'keyup', 'keypress'].forEach(type =>
+    inner.addEventListener(type, e => e.stopPropagation())
+  );
+
   // ── State & Storage ────────────────────────────────────────────────────────
 
   const STORE_KEY   = 'ftd-todos-v1';
