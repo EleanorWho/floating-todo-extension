@@ -102,7 +102,7 @@
   const noteTimers  = {};
   let backupArchive     = [];
   let dateJustCommitted = false;
-  let obsidianConfig    = { apiKey: '', host: '127.0.0.1', port: 27123, useHttps: true, folder: 'Todo Notes' };
+  let obsidianConfig    = { apiKey: '', host: '127.0.0.1', port: 27124, useHttps: true, folder: 'Todo Notes' };
 
   // ── Dock state ─────────────────────────────────────────────────────────────
   // edge: 'right' | 'left' | 'top' | 'bottom'
@@ -1078,7 +1078,7 @@
           <label class="ftd-settings-label">Folder</label>
           <input class="ftd-settings-input" id="ftd-obs-folder" type="text" value="${folder}" placeholder="e.g. Todo Notes / Learning" />
         </div>
-        <p class="ftd-settings-hint">Using HTTPS? Visit <strong>https://127.0.0.1:27123/</strong> in Chrome once and click "Advanced → Proceed" to trust the local certificate.</p>
+        <p class="ftd-settings-hint">Using HTTPS? Visit <strong>https://127.0.0.1:27124/</strong> in Chrome once and click "Advanced → Proceed" to trust the local certificate.</p>
         <p id="ftd-obs-test-msg" class="ftd-settings-hint" style="display:none"></p>
       </div>
       <div class="ftd-modal-footer" style="gap:8px;justify-content:flex-end">
