@@ -38,6 +38,8 @@
                 <button class="ftd-dropdown-item" id="ftd-export">📥 Weekly wrap-up</button>
                 <button class="ftd-dropdown-item" id="ftd-backup">💾 Backup to JSON</button>
                 <button class="ftd-dropdown-item" id="ftd-restore">📂 Restore backup</button>
+                <div class="ftd-dropdown-divider"></div>
+                <button class="ftd-dropdown-item" id="ftd-obs-settings-btn">⚙️ Obsidian</button>
               </div>
             </div>
             <button class="ftd-icon-btn" id="ftd-clear" title="Clear completed">🧹</button>
@@ -91,6 +93,7 @@
   const THEME_KEY   = 'ftd-theme-v1';
   const DOCK_KEY    = 'ftd-dock-v1';
   const ARCHIVE_KEY = 'ftd-archive-v1';
+  const OBS_KEY     = 'ftd-obsidian-v1';
 
   let state = { items: [] };
   let isDark = false;
@@ -99,6 +102,7 @@
   const noteTimers  = {};
   let backupArchive     = [];
   let dateJustCommitted = false;
+  let obsidianConfig    = { apiKey: '', host: '127.0.0.1', port: 27123, useHttps: true, folder: 'Todo Notes' };
 
   // ── Dock state ─────────────────────────────────────────────────────────────
   // edge: 'right' | 'left' | 'top' | 'bottom'
@@ -219,10 +223,11 @@
   }
 
   function loadState(cb) {
-    chrome.storage.local.get([STORE_KEY, ARCHIVE_KEY, THEME_KEY, DOCK_KEY], (res) => {
+    chrome.storage.local.get([STORE_KEY, ARCHIVE_KEY, THEME_KEY, DOCK_KEY, OBS_KEY], (res) => {
       if (res[STORE_KEY]) state = res[STORE_KEY];
       backupArchive = res[ARCHIVE_KEY] || [];
       pruneArchive();
+      if (res[OBS_KEY]) obsidianConfig = { ...obsidianConfig, ...res[OBS_KEY] };
       // Migrate old items (done: boolean → status string)
       state.items = state.items.map(item => {
         if (item.status === undefined) item.status = item.done ? 'done' : 'pending';
@@ -639,6 +644,34 @@
     });
 
     noteHeader.appendChild(noteToggle);
+
+    const obsBtn = document.createElement('button');
+    obsBtn.className = 'ftd-note-toggle ftd-obs-send-btn';
+    obsBtn.textContent = '↗ Obsidian';
+    obsBtn.title = 'Send note to Obsidian';
+    obsBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!obsidianConfig.apiKey) { openObsidianSettings(); return; }
+      const note = noteTA.value.trim();
+      if (!note) {
+        obsBtn.textContent = 'no note yet';
+        setTimeout(() => { obsBtn.textContent = '↗ Obsidian'; }, 1500);
+        return;
+      }
+      obsBtn.textContent = '…';
+      obsBtn.disabled = true;
+      try {
+        await sendNoteToObsidian(item, note);
+        obsBtn.textContent = '✅ sent';
+        setTimeout(() => { obsBtn.textContent = '↗ Obsidian'; obsBtn.disabled = false; }, 2000);
+      } catch (err) {
+        obsBtn.textContent = '❌ failed';
+        obsBtn.title = err.message;
+        setTimeout(() => { obsBtn.textContent = '↗ Obsidian'; obsBtn.disabled = false; obsBtn.title = 'Send note to Obsidian'; }, 3000);
+      }
+    });
+    noteHeader.appendChild(obsBtn);
+
     noteWrap.appendChild(noteHeader);
     noteWrap.appendChild(noteTA);
     noteWrap.appendChild(notePreview);
@@ -962,6 +995,138 @@
     e.stopPropagation();
     if (e.key === 'Enter') addTodo();
   });
+
+  // ── Obsidian integration ──────────────────────────────────────────────────
+
+  function plainTitle(text) {
+    return text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
+  }
+
+  function safeFilename(title) {
+    return title.replace(/[\\/:*?"<>|#\^[\]]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Untitled';
+  }
+
+  async function sendNoteToObsidian(item, noteText) {
+    const { apiKey, host, port, useHttps, folder } = obsidianConfig;
+    if (!apiKey) throw new Error('No API key — open Obsidian settings first');
+
+    const title = plainTitle(item.text);
+    const today = new Date().toISOString().slice(0, 10);
+    const created = item.createdAt ? new Date(item.createdAt).toISOString().slice(0, 10) : today;
+
+    const fm = ['---', `title: "${title.replace(/"/g, '\\"')}"`];
+    fm.push(item.tag ? `tags:\n  - todo\n  - ${item.tag}` : 'tags:\n  - todo');
+    if (item.dueDate) fm.push(`due: ${item.dueDate}`);
+    fm.push(`status: ${item.status}`, `created: ${created}`, `exported: ${today}`);
+    const urlMatch = item.text.match(/\]\(([^)]+)\)/);
+    if (urlMatch) fm.push(`source: "${urlMatch[1]}"`);
+    fm.push('---');
+
+    let body = fm.join('\n') + `\n\n# ${title}\n\n` + (noteText || '');
+
+    if (item.subtasks && item.subtasks.length) {
+      body += '\n\n## Subtasks\n\n';
+      item.subtasks.forEach(sub => {
+        const box = (sub.status || 'pending') === 'done' ? '[x]'
+                  : sub.status === 'in-progress' ? '[-]' : '[ ]';
+        body += `- ${box} ${sub.text}\n`;
+      });
+    }
+
+    const path = folder ? `${folder}/${safeFilename(title)}.md` : `${safeFilename(title)}.md`;
+    const proto = useHttps ? 'https' : 'http';
+    const res = await fetch(`${proto}://${host}:${port}/vault/${encodeURIComponent(path)}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'text/markdown' },
+      body,
+    });
+    if (!res.ok) throw new Error(`Obsidian API returned ${res.status}`);
+  }
+
+  function openObsidianSettings() {
+    const { apiKey = '', host = '127.0.0.1', port = 27123, useHttps = true, folder = 'Todo Notes' } = obsidianConfig;
+    const overlay = document.createElement('div');
+    overlay.className = 'ftd-modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'ftd-modal';
+    modal.innerHTML = `
+      <div class="ftd-modal-header">
+        <span>⚙️ Obsidian Settings</span>
+        <button class="ftd-modal-close">×</button>
+      </div>
+      <div class="ftd-modal-body ftd-settings-body">
+        <div class="ftd-settings-row">
+          <label class="ftd-settings-label">API Key</label>
+          <input class="ftd-settings-input" id="ftd-obs-key" type="password" value="${apiKey}" placeholder="From Obsidian → Local REST API plugin" autocomplete="off" />
+        </div>
+        <div class="ftd-settings-row">
+          <label class="ftd-settings-label">Protocol</label>
+          <div class="ftd-settings-radios">
+            <label><input type="radio" name="ftd-obs-proto" value="https" ${useHttps ? 'checked' : ''}> HTTPS (default)</label>
+            <label><input type="radio" name="ftd-obs-proto" value="http" ${!useHttps ? 'checked' : ''}> HTTP</label>
+          </div>
+        </div>
+        <div class="ftd-settings-row">
+          <label class="ftd-settings-label">Host</label>
+          <input class="ftd-settings-input ftd-settings-input-sm" id="ftd-obs-host" type="text" value="${host}" />
+        </div>
+        <div class="ftd-settings-row">
+          <label class="ftd-settings-label">Port</label>
+          <input class="ftd-settings-input ftd-settings-input-sm" id="ftd-obs-port" type="number" value="${port}" />
+        </div>
+        <div class="ftd-settings-row">
+          <label class="ftd-settings-label">Folder</label>
+          <input class="ftd-settings-input" id="ftd-obs-folder" type="text" value="${folder}" placeholder="e.g. Todo Notes / Learning" />
+        </div>
+        <p class="ftd-settings-hint">Using HTTPS? Visit <strong>https://127.0.0.1:27123/</strong> in Chrome once and click "Advanced → Proceed" to trust the local certificate.</p>
+        <p id="ftd-obs-test-msg" class="ftd-settings-hint" style="display:none"></p>
+      </div>
+      <div class="ftd-modal-footer" style="gap:8px;justify-content:flex-end">
+        <button class="ftd-modal-copy ftd-btn-ghost" id="ftd-obs-test">Test connection</button>
+        <button class="ftd-modal-copy" id="ftd-obs-save">Save</button>
+      </div>`;
+    overlay.appendChild(modal);
+    shadow.appendChild(overlay);
+
+    const close = () => shadow.removeChild(overlay);
+    modal.querySelector('.ftd-modal-close').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+    modal.querySelector('#ftd-obs-test').addEventListener('click', async () => {
+      const key   = modal.querySelector('#ftd-obs-key').value.trim();
+      const h     = modal.querySelector('#ftd-obs-host').value.trim();
+      const p     = modal.querySelector('#ftd-obs-port').value.trim();
+      const https = modal.querySelector('input[name="ftd-obs-proto"]:checked').value === 'https';
+      const msg   = modal.querySelector('#ftd-obs-test-msg');
+      msg.style.display = '';
+      msg.style.color = 'var(--text-muted)';
+      msg.textContent = 'Testing…';
+      try {
+        const res = await fetch(`${https ? 'https' : 'http'}://${h}:${p}/`, {
+          headers: { 'Authorization': `Bearer ${key}` },
+        });
+        msg.style.color = res.ok ? '#16a34a' : '#dc2626';
+        msg.textContent = res.ok ? '✅ Connected successfully' : `❌ HTTP ${res.status}`;
+      } catch (err) {
+        msg.style.color = '#dc2626';
+        msg.textContent = `❌ ${err.message}`;
+      }
+    });
+
+    modal.querySelector('#ftd-obs-save').addEventListener('click', () => {
+      obsidianConfig = {
+        apiKey:   modal.querySelector('#ftd-obs-key').value.trim(),
+        host:     modal.querySelector('#ftd-obs-host').value.trim() || '127.0.0.1',
+        port:     parseInt(modal.querySelector('#ftd-obs-port').value) || 27123,
+        useHttps: modal.querySelector('input[name="ftd-obs-proto"]:checked').value === 'https',
+        folder:   modal.querySelector('#ftd-obs-folder').value.trim(),
+      };
+      chrome.storage.local.set({ [OBS_KEY]: obsidianConfig });
+      close();
+    });
+  }
+
+  $('ftd-obs-settings-btn').addEventListener('click', openObsidianSettings);
 
   // ── JSON backup / restore ─────────────────────────────────────────────────
 

@@ -306,6 +306,11 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+.ftd-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
 .ftd-update-item {
   color: #b45309;
   border-bottom: 1px solid var(--border);
@@ -621,6 +626,72 @@
   padding: 2px 10px 8px 43px;
 }
 .ftd-expanded.ftd-show { display: block; }
+
+/* ── Obsidian send button (in note header) ────────────────────────────────── */
+.ftd-obs-send-btn {
+  color: #7c3aed;
+  border-color: #ddd6fe;
+}
+.ftd-obs-send-btn:hover {
+  color: #6d28d9;
+  border-color: #7c3aed;
+  background: #f5f3ff;
+}
+:host(.ftd-dark) .ftd-obs-send-btn { color: #a78bfa; border-color: #4c1d95; }
+:host(.ftd-dark) .ftd-obs-send-btn:hover { background: #2e1065; border-color: #a78bfa; }
+
+/* ── Obsidian settings modal form ─────────────────────────────────────────── */
+.ftd-settings-body {
+  font-size: 13px;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ftd-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ftd-settings-label {
+  width: 70px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.ftd-settings-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ftd-settings-input:focus { border-color: var(--accent); }
+.ftd-settings-input-sm { flex: 0 0 90px; }
+.ftd-settings-radios {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.ftd-settings-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.ftd-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+}
+.ftd-btn-ghost:hover { background: var(--bg-hover); filter: none; }
 
 /* Per-todo note wrapper */
 .ftd-note-wrap {
